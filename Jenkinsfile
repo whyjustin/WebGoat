@@ -3,7 +3,7 @@ import com.sonatype.jenkins.pipeline.GitHub
 import com.sonatype.jenkins.pipeline.OsTools
 
 node {
-  def gitHub
+  GitHub gitHub
 
   stage('Preparation') {
     checkout scm
