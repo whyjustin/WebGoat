@@ -1,84 +1,44 @@
-import groovy.json.JsonOutput
+@Library('zion-pipeline-library')
+import com.sonatype.jenkins.pipeline.GitHub
+import com.sonatype.jenkins.pipeline.OsTools
 
 node {
-  def commitId
-
-  def runOsSafe = { command ->
-    if (isUnix()) {
-      sh command
-    } else {
-      bat command
-    }
-  }
-
-  def gitHubPost = { payload, endpoint ->
-    withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: 'integrations-github-api',
-                      usernameVariable: 'GITHUB_API_USERNAME', passwordVariable: 'GITHUB_API_PASSWORD']]) {
-      runOsSafe "curl -H \"Authorization: token ${env.GITHUB_API_PASSWORD}\" --request POST --data '${payload}' https://api.github.com/repos/whyjustin/WebGoat/${endpoint} > /dev/null"
-    }
-  }
+  def gitHub
 
   stage('Preparation') {
     checkout scm
     sh 'git rev-parse HEAD > .git/commit-id'
     commitId = readFile('.git/commit-id')
+
+    withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: 'integrations-github-api',
+                      usernameVariable: 'GITHUB_API_USERNAME', passwordVariable: 'GITHUB_API_PASSWORD']]) {
+      gitHub = new GitHub(this, 'whyjustin/WebGoat', env.GITHUB_API_PASSWORD)
+    }
   }
   stage('Build') {
-    def buildPayload = JsonOutput.toJson(
-      state: 'pending',
-      context: 'build',
-      description: 'Build in running'
-    )
-    gitHubPost buildPayload, "statuses/${commitId}"
+    gitHub.gitHubStatusUpdate 'pending', 'build', 'Build in running'
 
     withMaven(jdk: 'JDK7', maven: 'M3', mavenSettingsConfig: 'private-settings.xml') {
-      runOsSafe "mvn clean package"
+      OsTools.runSafe this, 'mvn clean package'
     }
 
     if (currentBuild.result == 'FAILURE') {
-      buildPayload = JsonOutput.toJson(
-        state: 'failure',
-        context: 'build',
-        description: 'Build failed'
-      )
-      gitHubPost buildPayload, "statuses/${commitId}"
+      gitHub.gitHubStatusUpdate 'failure', 'build', 'Build failed'
       return
     } else {
-      buildPayload = JsonOutput.toJson(
-        state: 'success',
-        context: 'build',
-        description: 'Build succeeded'
-      )
-      gitHubPost buildPayload, "statuses/${commitId}"
+      gitHub.gitHubStatusUpdate 'success', 'build', 'Build succeeded'
     }
   }
   stage('Nexus Lifecycle Analysis') {
-    def analysisPayload = JsonOutput.toJson(
-      state: 'pending',
-      context: 'analysis',
-      description: 'Nexus Lifecycle Analysis in running'
-    )
-    gitHubPost analysisPayload, "statuses/${commitId}"
+    gitHubStatusUpdate 'pending', 'analysis', 'Nexus Lifecycle Analysis in running'
 
     def evaluation = nexusPolicyEvaluation failBuildOnNetworkError: false, iqApplication: 'webgoat', iqStage: 'build', jobCredentialsId: ''
 
     if (currentBuild.result == 'FAILURE') {
-      analysisPayload = JsonOutput.toJson(
-        state: 'failure',
-        context: 'analysis',
-        description: 'Nexus Lifecycle Analysis failed',
-        target_url: "${evaluation.applicationCompositionReportUrl}"
-      )
-      gitHubPost analysisPayload, "statuses/${commitId}"
+      gitHub.gitHubStatusUpdate 'failure', 'analysis', 'Nexus Lifecycle Analysis failed', "${evaluation.applicationCompositionReportUrl}"
       return
     } else {
-      analysisPayload = JsonOutput.toJson(
-        state: 'success',
-        context: 'analysis',
-        description: 'Nexus Lifecycle Analysis passed',
-        target_url: "${evaluation.applicationCompositionReportUrl}"
-      )
-      gitHubPost analysisPayload, "statuses/${commitId}"
+      gitHub.gitHubStatusUpdate 'success', 'analysis', 'Nexus Lifecycle Analysis passed', "${evaluation.applicationCompositionReportUrl}"
     }
   }
   stage('Results') {
