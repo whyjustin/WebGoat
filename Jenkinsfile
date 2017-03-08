@@ -3,6 +3,7 @@ import com.sonatype.jenkins.pipeline.GitHub
 import com.sonatype.jenkins.pipeline.OsTools
 
 node {
+  def commitId
   GitHub gitHub
 
   stage('Preparation') {
@@ -10,35 +11,37 @@ node {
     sh 'git rev-parse HEAD > .git/commit-id'
     commitId = readFile('.git/commit-id')
 
+    def apiToken
     withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: 'integrations-github-api',
                       usernameVariable: 'GITHUB_API_USERNAME', passwordVariable: 'GITHUB_API_PASSWORD']]) {
-      gitHub = new GitHub(this, 'whyjustin/WebGoat', env.GITHUB_API_PASSWORD)
+      apiToken = env.GITHUB_API_PASSWORD
     }
+    gitHub = new GitHub(this, 'whyjustin/WebGoat', apiToken)
   }
   stage('Build') {
-    gitHub.statusUpdate('pending', 'build', 'Build in running')
+    gitHub.statusUpdate commitId, 'pending', 'build', 'Build in running'
 
     withMaven(jdk: 'JDK7', maven: 'M3', mavenSettingsConfig: 'private-settings.xml') {
       OsTools.runSafe(this, 'mvn clean package')
     }
 
     if (currentBuild.result == 'FAILURE') {
-      gitHub.statusUpdate('failure', 'build', 'Build failed')
+      gitHub.statusUpdate commitId, 'failure', 'build', 'Build failed'
       return
     } else {
-      gitHub.statusUpdate('success', 'build', 'Build succeeded')
+      gitHub.statusUpdate commitId, 'success', 'build', 'Build succeeded'
     }
   }
   stage('Nexus Lifecycle Analysis') {
-    gitHubStatusUpdate('pending', 'analysis', 'Nexus Lifecycle Analysis in running')
+    gitHub.statusUpdate commitId, 'pending', 'analysis', 'Nexus Lifecycle Analysis in running'
 
     def evaluation = nexusPolicyEvaluation failBuildOnNetworkError: false, iqApplication: 'webgoat', iqStage: 'build', jobCredentialsId: ''
 
     if (currentBuild.result == 'FAILURE') {
-      gitHub.statusUpdate('failure', 'analysis', 'Nexus Lifecycle Analysis failed', "${evaluation.applicationCompositionReportUrl}")
+      gitHub.statusUpdate commitId, 'failure', 'analysis', 'Nexus Lifecycle Analysis failed', "${evaluation.applicationCompositionReportUrl}"
       return
     } else {
-      gitHub.statusUpdate('success', 'analysis', 'Nexus Lifecycle Analysis passed', "${evaluation.applicationCompositionReportUrl}")
+      gitHub.statusUpdate commitId, 'success', 'analysis', 'Nexus Lifecycle Analysis passed', "${evaluation.applicationCompositionReportUrl}"
     }
   }
   stage('Results') {
