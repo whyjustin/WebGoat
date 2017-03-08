@@ -21,7 +21,7 @@ node {
   stage('Build') {
     gitHub.statusUpdate commitId, 'pending', 'build', 'Build in running'
 
-    withMaven(jdk: 'JDK7', maven: 'M3', mavenSettingsConfig: 'private-settings.xml') {
+    withMaven(jdk: 'JDK7u80', maven: 'M3', mavenSettingsConfig: 'private-settings.xml') {
       OsTools.runSafe(this, 'mvn clean package')
     }
 
