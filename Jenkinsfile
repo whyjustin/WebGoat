@@ -14,6 +14,10 @@ node {
   def commitId
   def gitHubApiToken
 
+  def gitHubPost = { payload, endpoint ->
+    runOsSafe "curl -H \"Authorization: token ${gitHubApiToken}\" --request POST --data '${payload}' https://api.github.com/repos/whyjustin/WebGoat/${endpoint} > /dev/null"
+  }
+
   stage('Preparation') {
     checkout scm
     sh 'git rev-parse HEAD > .git/commit-id'
@@ -27,28 +31,60 @@ node {
     }
   }
   stage('Build') {
+    def buildPayload = JsonOutput.toJson(
+      state: 'pending',
+      context: 'build',
+      description: 'Build in running'
+    )
+    gitHubPost buildPayload, "statuses/${commitId}".toString()
+
     runOsSafe "JAVA_HOME=${javaHome} ${mvnHome}/bin/mvn clean package"
+
+    if (currentBuild.result == 'FAILURE') {
+      buildPayload = JsonOutput.toJson(
+        state: 'failure',
+        context: 'build',
+        description: 'Build failed'
+      )
+      gitHubPost buildPayload, "statuses/${commitId}".toString()
+      return
+    } else {
+      buildPayload = JsonOutput.toJson(
+        state: 'success',
+        context: 'build',
+        description: 'Build succeeded'
+      )
+      gitHubPost buildPayload, "statuses/${commitId}".toString()
+    }
   }
   stage('Nexus Lifecycle Analysis') {
     def analysisPayload = JsonOutput.toJson(
-            state: 'pending',
-            context: 'analysis',
-            description: 'Nexus Lifecycle Analysis in running'
+      state: 'pending',
+      context: 'analysis',
+      description: 'Nexus Lifecycle Analysis in running'
     )
-    runOsSafe "curl -H \"Authorization: token ${gitHubApiToken}\" --request POST --data '${analysisPayload}' https://api.github.com/repos/whyjustin/WebGoat/statuses/${commitId} > /dev/null"
+    gitHubPost analysisPayload, "statuses/${commitId}".toString()
 
     def evaluation = nexusPolicyEvaluation failBuildOnNetworkError: false, iqApplication: 'webgoat', iqStage: 'build', jobCredentialsId: ''
 
-    analysisPayload = JsonOutput.toJson(
-            state: 'failure',
-            context: 'analysis',
-            description: 'Nexus Lifecycle Analysis failed',
-            target_url: "${evaluation.applicationCompositionReportUrl}"
-    )
-    runOsSafe "curl -H \"Authorization: token ${gitHubApiToken}\" --request POST --data '${analysisPayload}' https://api.github.com/repos/whyjustin/WebGoat/statuses/${commitId} > /dev/null"
-  }
-  if (currentBuild.result == 'FAILURE') {
-    return
+    if (currentBuild.result == 'FAILURE') {
+      analysisPayload = JsonOutput.toJson(
+        state: 'failure',
+        context: 'analysis',
+        description: 'Nexus Lifecycle Analysis failed',
+        target_url: "${evaluation.applicationCompositionReportUrl}"
+      )
+      gitHubPost analysisPayload, "statuses/${commitId}".toString()
+      return
+    } else {
+      analysisPayload = JsonOutput.toJson(
+        state: 'success',
+        context: 'analysis',
+        description: 'Nexus Lifecycle Analysis passed',
+        target_url: "${evaluation.applicationCompositionReportUrl}"
+      )
+      gitHubPost analysisPayload, "statuses/${commitId}".toString()
+    }
   }
   stage('Results') {
     junit '**/target/surefire-reports/TEST-*.xml'
