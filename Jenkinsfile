@@ -16,17 +16,17 @@ node {
     }
   }
   stage('Build') {
-    gitHub.gitHubStatusUpdate 'pending', 'build', 'Build in running'
+    gitHub.statusUpdate 'pending', 'build', 'Build in running'
 
     withMaven(jdk: 'JDK7', maven: 'M3', mavenSettingsConfig: 'private-settings.xml') {
       OsTools.runSafe this, 'mvn clean package'
     }
 
     if (currentBuild.result == 'FAILURE') {
-      gitHub.gitHubStatusUpdate 'failure', 'build', 'Build failed'
+      gitHub.statusUpdate 'failure', 'build', 'Build failed'
       return
     } else {
-      gitHub.gitHubStatusUpdate 'success', 'build', 'Build succeeded'
+      gitHub.statusUpdate 'success', 'build', 'Build succeeded'
     }
   }
   stage('Nexus Lifecycle Analysis') {
@@ -35,10 +35,10 @@ node {
     def evaluation = nexusPolicyEvaluation failBuildOnNetworkError: false, iqApplication: 'webgoat', iqStage: 'build', jobCredentialsId: ''
 
     if (currentBuild.result == 'FAILURE') {
-      gitHub.gitHubStatusUpdate 'failure', 'analysis', 'Nexus Lifecycle Analysis failed', "${evaluation.applicationCompositionReportUrl}"
+      gitHub.statusUpdate 'failure', 'analysis', 'Nexus Lifecycle Analysis failed', "${evaluation.applicationCompositionReportUrl}"
       return
     } else {
-      gitHub.gitHubStatusUpdate 'success', 'analysis', 'Nexus Lifecycle Analysis passed', "${evaluation.applicationCompositionReportUrl}"
+      gitHub.statusUpdate 'success', 'analysis', 'Nexus Lifecycle Analysis passed', "${evaluation.applicationCompositionReportUrl}"
     }
   }
   stage('Results') {
